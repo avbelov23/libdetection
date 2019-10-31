@@ -5,10 +5,11 @@
 #include <errno.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <curl/curl.h>
 
 #define ERR(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
 
-#define MAXLINE 4096
+#define MAXLINE 40960
 #define MAX_DISABLED_CTXS 8
 
 enum perf_action {
@@ -132,7 +133,7 @@ main(int argc, char **argv)
 {
     struct detect *detect;
     char *progname;
-    char buf[MAXLINE];
+    char buf[MAXLINE], s[MAXLINE];
     unsigned disabled_ctxs[MAX_DISABLED_CTXS];
     unsigned n_disabled_ctxs = 0, ictx;
     char parser[32] = "sqli";
@@ -238,32 +239,43 @@ main(int argc, char **argv)
     }
     nstr = 0;
     nattacks = 0;
-    while (fgets(buf, sizeof(buf), stdin) != NULL) {
+    CURL *curl = curl_easy_init();
+    while (fgets(s, sizeof(s), stdin) != NULL) {
         bool has_attack;
         bool multiline;
         uint32_t attack_types;
 
-        len = strlen(buf);
+        len = strlen(s);
+        memcpy(buf, s, len);
         if (len > 0 && buf[len - 1] == '\n') {
             --len;
             if (len > 0 && buf[len - 1] == '\r')
                 --len;
         }
+        for (size_t k = 0; k < len; k++)
+            if (buf[k] == '+')
+                buf[k] = ' ';
+        int unescaped_len;
+        char *unescaped = curl_easy_unescape(curl, buf, len, &unescaped_len);
+        memcpy(buf, unescaped, unescaped_len);
+        len = unescaped_len;
+        curl_free(unescaped);
         /* skip comment lines */
-        if (len != 0 && buf[0] == '#')
+        /*if (len != 0 && buf[0] == '#')
             continue;
         multiline = (len != 0 && buf[len - 1] == '\\');
         if (multiline)
-            --len;
+            --len;*/
+        multiline = 0;
         detect_start(detect);
         detect_add_data(detect, buf, len, !multiline);
-        if (multiline)
-            continue;
+        /*if (multiline)
+            continue;*/
         has_attack = detect_has_attack(detect, &attack_types);
         if (report_attacks)
             s_report_attack(nstr, has_attack, attack_types);
         if (echo && (has_attack || verbose > 0))
-            printf("%s", buf);
+            printf("%s", s);
         if (has_attack ? verbose > 0 : verbose > 1)
             s_perf_dump_result(detect);
         detect_stop(detect);

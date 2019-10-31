@@ -1,4 +1,6 @@
 %{
+/*#define YYDEBUG 1
+yydebug=1;*/
 #include "sqli.h"
 
 static void
